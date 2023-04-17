@@ -187,8 +187,8 @@ def main(**kwargs):
     # Initialize config.
     opts = dnnlib.EasyDict(kwargs) # Command line arguments.
     c = dnnlib.EasyDict() # Main config dict.
-    c.G_kwargs = dnnlib.EasyDict(class_name=None, z_dim=512, w_dim=512, mapping_kwargs=dnnlib.EasyDict())
-    c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
+    c.G_kwargs = dnnlib.EasyDict(class_name=None, z_dim=64, w_dim=512) 
+    c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2.Discriminator', block_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
     c.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')
@@ -207,9 +207,7 @@ def main(**kwargs):
     c.batch_gpu = opts.batch_gpu or opts.batch // opts.gpus
     c.G_kwargs.channel_base = c.D_kwargs.channel_base = opts.cbase
     c.G_kwargs.channel_max = c.D_kwargs.channel_max = opts.cmax
-    c.G_kwargs.mapping_kwargs.num_layers = (8 if opts.cfg == 'stylegan2' else 2) if opts.map_depth is None else opts.map_depth
     c.D_kwargs.block_kwargs.freeze_layers = opts.freezed
-    c.D_kwargs.epilogue_kwargs.mbstd_group_size = opts.mbstd_group
     c.loss_kwargs.r1_gamma = opts.gamma
     c.G_opt_kwargs.lr = (0.002 if opts.cfg == 'stylegan2' else 0.0025) if opts.glr is None else opts.glr
     c.D_opt_kwargs.lr = opts.dlr
@@ -225,8 +223,6 @@ def main(**kwargs):
         raise click.ClickException('--batch must be a multiple of --gpus')
     if c.batch_size % (c.num_gpus * c.batch_gpu) != 0:
         raise click.ClickException('--batch must be a multiple of --gpus times --batch-gpu')
-    if c.batch_gpu < c.D_kwargs.epilogue_kwargs.mbstd_group_size:
-        raise click.ClickException('--batch-gpu cannot be smaller than --mbstd')
     if any(not metric_main.is_valid_metric(metric) for metric in c.metrics):
         raise click.ClickException('\n'.join(['--metrics can only contain the following values:'] + metric_main.list_valid_metrics()))
 
@@ -234,11 +230,6 @@ def main(**kwargs):
     c.ema_kimg = c.batch_size * 10 / 32
     if opts.cfg == 'stylegan2':
         c.G_kwargs.class_name = 'training.networks_stylegan2.Generator'
-        c.loss_kwargs.style_mixing_prob = 0.9 # Enable style mixing regularization.
-        c.loss_kwargs.pl_weight = 2 # Enable path length regularization.
-        c.G_reg_interval = 4 # Enable lazy regularization for G.
-        c.G_kwargs.fused_modconv_default = 'inference_only' # Speed up training by using regular convolutions instead of grouped convolutions.
-        c.loss_kwargs.pl_no_weight_grad = True # Speed up path length regularization by skipping gradient computation wrt. conv2d weights.
     else:
         c.G_kwargs.class_name = 'training.networks_stylegan3.Generator'
         c.G_kwargs.magnitude_ema_beta = 0.5 ** (c.batch_size / (20 * 1e3))
