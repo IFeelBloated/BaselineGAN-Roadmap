@@ -33,29 +33,34 @@ class StyleGAN2Loss:
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gain, cur_nimg):
         if phase == 'G':
             gen_img = self.run_G(gen_z, real_c)
+            
             gen_logits = self.run_D(gen_img, real_c)
-            training_stats.report('Loss/scores/fake', gen_logits)
-            training_stats.report('Loss/signs/fake', gen_logits.sign())
-            loss_G = torch.nn.functional.softplus(-gen_logits)
-            training_stats.report('Loss/G/loss', loss_G)
+            real_logits = self.run_D(real_img, real_c)
+            relativistic_logits = gen_logits - real_logits
+            
+            loss_G = torch.nn.functional.softplus(-relativistic_logits)
             loss_G.mean().mul(gain).backward()
+            
+            training_stats.report('Loss/G/loss', loss_G)
+            training_stats.report('Loss/scores/fake', relativistic_logits)
+            training_stats.report('Loss/signs/fake', relativistic_logits.sign())
 
         if phase == 'D':
             gen_img = self.run_G(gen_z, real_c, update_emas=True)
-            gen_logits = self.run_D(gen_img, real_c, update_emas=True)
-            training_stats.report('Loss/scores/fake', gen_logits)
-            training_stats.report('Loss/signs/fake', gen_logits.sign())
-            
             real_img_tmp = real_img.detach().requires_grad_(True)
+            
+            gen_logits = self.run_D(gen_img, real_c, update_emas=True)
             real_logits = self.run_D(real_img_tmp, real_c)
-            training_stats.report('Loss/scores/real', real_logits)
-            training_stats.report('Loss/signs/real', real_logits.sign())
+            relativistic_logits = real_logits - gen_logits
             
             r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
             r1_penalty = r1_grads.square().sum([1,2,3])
-            training_stats.report('Loss/r1_penalty', r1_penalty)
             
-            loss_D = torch.nn.functional.softplus(gen_logits) + torch.nn.functional.softplus(-real_logits) + r1_penalty * (self.r1_gamma / 2)
-            training_stats.report('Loss/D/loss', loss_D)
+            loss_D = torch.nn.functional.softplus(-relativistic_logits) + r1_penalty * (self.r1_gamma / 2)
             loss_D.mean().mul(gain).backward()
+            
+            training_stats.report('Loss/r1_penalty', r1_penalty)
+            training_stats.report('Loss/D/loss', loss_D)
+            training_stats.report('Loss/scores/real', relativistic_logits)
+            training_stats.report('Loss/signs/real', relativistic_logits.sign())
 #----------------------------------------------------------------------------
